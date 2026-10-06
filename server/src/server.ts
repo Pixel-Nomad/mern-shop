@@ -1,34 +1,43 @@
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
+import { disconnectDB } from "./config/db.js";
 
-const app = createApp();
+const bootstrap = async (): Promise<void> => {
+  const app = await createApp();
 
-const server = app.listen(env.PORT, () => {
-  console.warn(`[server] ✅ listening on http://localhost:${env.PORT} in ${env.NODE_ENV} mode`);
-});
+  const server = app.listen(env.PORT, () => {
+    console.warn(
+      `[server] ✅ listening on http://localhost:${env.PORT} in ${env.NODE_ENV} mode`,
+    );
+  });
 
-/**
- * Graceful shutdown: stop accepting new connections,
- * let in-flight requests finish (up to 10s), then exit.
- */
-const shutdown = (signal: NodeJS.Signals): void => {
-  console.warn(`[server] received ${signal}, shutting down...`);
+  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+    console.warn(`[server] received ${signal}, shutting down...`);
 
-  server.close((err) => {
-    if (err) {
+    const forceExit = setTimeout(() => {
+      console.error("[server] forced shutdown after 10s");
+      process.exit(1);
+    }, 10_000);
+    forceExit.unref();
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      });
+      await disconnectDB();
+      console.warn("[server] closed cleanly");
+      process.exit(0);
+    } catch (err) {
       console.error("[server] error during shutdown:", err);
       process.exit(1);
     }
-    console.warn("[server] closed cleanly");
-    process.exit(0);
-  });
+  };
 
-  // Hard deadline: if close() hangs, force exit after 10s.
-  setTimeout(() => {
-    console.error("[server] forced shutdown after 10s");
-    process.exit(1);
-  }, 10_000).unref();
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 };
 
-process.on("SIGTERM", shutdown);
-process.on("SIGINT", shutdown);
+bootstrap().catch((err: unknown) => {
+  console.error("[server] failed to start:", err);
+  process.exit(1);
+});

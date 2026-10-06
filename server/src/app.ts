@@ -6,11 +6,19 @@ import cookieParser from "cookie-parser";
 import morgan from "morgan";
 
 import { env } from "./config/env.js";
+import { connectDB } from "./config/db.js";
 import { healthRouter } from "./routes/health.route.js";
 import { notFound } from "./middleware/notFound.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
-export const createApp = (): express.Express => {
+/**
+ * Create an Express app. Connects to MongoDB first.
+ * If the DB is unreachable (after retries), the promise rejects
+ * and startup fails — better to crash than serve a broken API.
+ */
+export const createApp = async (): Promise<express.Express> => {
+  await connectDB();
+
   const app = express();
 
   // Trust first proxy (nginx, heroku router, etc.) so req.ip is correct.

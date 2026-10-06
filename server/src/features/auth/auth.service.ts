@@ -11,6 +11,7 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../uti
 import { RefreshToken } from "./refreshToken.model.js";
 import ms from "ms";
 import bcrypt from "bcrypt";
+import { forgotPasswordTemplate } from "./emailTemplates/index.js";
 
 interface AuthResult {
   user: IUserDocument;
@@ -19,6 +20,8 @@ interface AuthResult {
 }
 
 const log = logger.child({ name: "auth.service" });
+
+const PASSWORD_RESET_EXPIRY_MINUTES = 30;
 
 /**
  * Create a new user and generate a verification token.
@@ -236,4 +239,87 @@ export const logoutUser = async (rawRefreshToken: string): Promise<void> => {
   const tokenHash = hashToken(rawRefreshToken);
   await RefreshToken.deleteOne({ tokenHash });
   log.info("user logged out");
+};
+
+/**
+ * Generate a password reset token and email it.
+ * ALWAYS succeeds (from the caller's perspective) — never reveals if the email exists.
+ */
+export const forgotPasswordUser = async (email: string): Promise<void> => {
+  const user = await User.findOne({ email });
+
+  // ⚠️ SECURITY: Do NOT throw if user not found. Return silently.
+  // This prevents account enumeration via password reset.
+  if (!user) {
+    // Burn a small amount of time to equalize timing with the real path
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return;
+  }
+
+  const rawToken = generateToken(32);
+  user.passwordResetToken = hashToken(rawToken);
+  user.passwordResetExpires = new Date(
+    Date.now() + PASSWORD_RESET_EXPIRY_MINUTES * 60 * 1000,
+  );
+  await user.save();
+
+  const resetUrl = `${env.CLIENT_URL}/reset-password?token=${rawToken}`;
+  const template = forgotPasswordTemplate({
+    name: user.name,
+    resetUrl,
+    expiresInMinutes: PASSWORD_RESET_EXPIRY_MINUTES,
+  });
+
+  await sendEmail({
+    to: user.email,
+    subject: template.subject,
+    html: template.html,
+    text: template.text,
+  });
+
+  log.info({ userId: user._id.toString() }, "password reset email sent");
+};
+
+/**
+ * Reset a user's password using a valid token.
+ * Also revokes all refresh tokens — critical for security.
+ */
+export const resetPasswordUser = async (
+  rawToken: string,
+  newPassword: string,
+): Promise<IUserDocument> => {
+  const hashed = hashToken(rawToken);
+
+  const user = await User.findOne({
+    passwordResetToken: hashed,
+  }).select("+passwordResetToken +passwordResetExpires +password +loginAttempts +lockUntil");
+
+  if (!user) {
+    throw AppError.badRequest("Invalid or expired reset token");
+  }
+
+  if (
+    !user.passwordResetExpires ||
+    user.passwordResetExpires.getTime() < Date.now()
+  ) {
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
+    throw AppError.badRequest("Reset token has expired");
+  }
+
+  user.password = newPassword;
+  user.passwordResetToken = undefined;
+  user.passwordResetExpires = undefined;
+  user.loginAttempts = 0;
+  user.lockUntil = undefined;
+
+  await user.save();
+
+  // Revoke all refresh tokens for this user — force re-login everywhere.
+  await RefreshToken.deleteMany({ userId: user._id });
+
+  log.info({ userId: user._id.toString() }, "password reset successful");
+
+  return user;
 };

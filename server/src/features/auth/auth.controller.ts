@@ -9,6 +9,9 @@ import type { CookieOptions } from "express";
 import { loginSchema } from "./auth.validation.js";
 import { loginUser, rotateRefreshToken, logoutUser } from "./auth.service.js";
 import { env } from "../../config/env.js";
+import { forgotPasswordSchema, resetPasswordSchema } from "./auth.validation.js";
+import { forgotPasswordUser, resetPasswordUser } from "./auth.service.js";
+
 
 const REFRESH_COOKIE_NAME = "refreshToken";
 
@@ -157,5 +160,49 @@ export const verifyEmail = asyncHandler(async (req: Request, res: Response) => {
     status: "success",
     message: "Email verified successfully",
     user: user.toJSON(),
+  });
+});
+
+/**
+ * POST /api/auth/forgot-password
+ * Body: { email }
+ * Returns: 200 { status, message }
+ */
+export const forgotPassword = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = forgotPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new AppError("Validation failed", 400, {
+      errors: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  await forgotPasswordUser(parsed.data.email);
+
+  // ALWAYS return the same response — no enumeration.
+  res.status(200).json({
+    status: "success",
+    message:
+      "If an account exists with that email, we've sent password reset instructions.",
+  });
+});
+
+/**
+ * POST /api/auth/reset-password
+ * Body: { token, password }
+ * Returns: 200 { status, message }
+ */
+export const resetPassword = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = resetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    throw new AppError("Validation failed", 400, {
+      errors: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  await resetPasswordUser(parsed.data.token, parsed.data.password);
+
+  res.status(200).json({
+    status: "success",
+    message: "Password reset successfully. Please log in with your new password.",
   });
 });

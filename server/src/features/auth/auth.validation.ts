@@ -45,3 +45,24 @@ export const loginSchema = z.object({
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
+
+/**
+ * Reuse the strong password rules from signup for reset.
+ * Same regex, same messages.
+ */
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Please provide a valid email"),
+});
+
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+  token: z
+    .string()
+    .min(1, "Reset token is required")
+    .max(256, "Reset token is too long")
+    .regex(/^[a-f0-9]+$/i, "Invalid token format"),
+  password: passwordSchema,
+});
+
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

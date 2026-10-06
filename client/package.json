@@ -1,0 +1,11 @@
+{
+  "name": "@mern-shop/client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "React 19 frontend for MERN Shop",
+  "scripts": {
+    "dev": "echo \"[client] dev script coming in commit #3\"",
+    "build": "echo \"[client] build script coming in commit #3\""
+  }
+}

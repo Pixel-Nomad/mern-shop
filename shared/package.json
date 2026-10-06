@@ -1,0 +1,12 @@
+{
+  "name": "@mern-shop/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared Zod schemas and TypeScript types",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "echo \"[shared] build script coming later\""
+  }
+}

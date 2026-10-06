@@ -1,0 +1,12 @@
+{
+  "name": "@mern-shop/server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Express 5 API for MERN Shop",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "echo \"[server] dev script coming in commit #2\"",
+    "build": "echo \"[server] build script coming in commit #2\""
+  }
+}

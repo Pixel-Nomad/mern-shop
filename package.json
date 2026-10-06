@@ -1,0 +1,28 @@
+{
+  "name": "mern-shop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-grade MERN e-commerce platform",
+  "license": "MIT",
+  "author": "Your Name",
+  "engines": {
+    "node": ">=20.11.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
+    "clean": "node -e \"const fs=require('fs');['client','server','shared'].forEach(d=>fs.rmSync(d+'/node_modules',{recursive:true,force:true}));fs.rmSync('node_modules',{recursive:true,force:true})\""
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}

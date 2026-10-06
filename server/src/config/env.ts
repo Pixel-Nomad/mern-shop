@@ -18,6 +18,8 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
   JWT_REFRESH_EXPIRES_IN: z.string().default("7d"),
   CLIENT_URL: z.string().url().default("http://localhost:5173"),
+  RESEND_API_KEY: z.string().min(1, "RESEND_API_KEY is required"),
+  EMAIL_FROM: z.string().email("EMAIL_FROM must be a valid email"),
 });
 
 /**

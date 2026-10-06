@@ -5,6 +5,9 @@ import { generateToken, hashToken } from "../../utils/crypto.js";
 import { logger } from "../../config/logger.js";
 import { env } from "../../config/env.js";
 import type { SignupInput } from "./auth.validation.js";
+import { sendEmail } from "../../config/email.js";
+import { verifyEmailTemplate } from "./emailTemplates/index.js";
+
 
 const log = logger.child({ name: "auth.service" });
 
@@ -31,12 +34,63 @@ export const signupUser = async (
   user.emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
   await user.save();
 
-  // TODO(commit #9): send email with verification URL
   const verificationUrl = `${env.CLIENT_URL}/verify-email?token=${rawToken}`;
-  log.info(
-    { userId: user._id.toString(), verificationUrl },
-    "🔗 verification URL (dev only — email sending in commit #9)",
-  );
+  const template = verifyEmailTemplate({
+    name: user.name,
+    verificationUrl,
+  });
+
+  await sendEmail({
+    to: user.email,
+    subject: template.subject,
+    html: template.html,
+    text: template.text,
+  });
+
+  return user;
+};
+
+/**
+ * Verify a user's email using the raw token from the URL.
+ * Returns the verified user on success.
+ * Throws 400 for invalid/expired token.
+ */
+export const verifyEmailUser = async (
+  rawToken: string,
+): Promise<IUserDocument> => {
+  const hashed = hashToken(rawToken);
+
+  const user = await User.findOne({
+    emailVerificationToken: hashed,
+  }).select("+emailVerificationToken +emailVerificationExpires");
+
+  if (!user) {
+    throw AppError.badRequest("Invalid or expired verification token");
+  }
+
+  if (
+    !user.emailVerificationExpires ||
+    user.emailVerificationExpires.getTime() < Date.now()
+  ) {
+    // Clear the stale token — user will need to request a new one.
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
+
+    throw AppError.badRequest("Verification token has expired");
+  }
+
+  if (user.emailVerified) {
+    // Idempotent — clicking the link twice is fine.
+    return user;
+  }
+
+  user.emailVerified = true;
+  user.emailVerificationToken = undefined;
+  user.emailVerificationExpires = undefined;
+  await user.save();
+
+  log.info({ userId: user._id.toString() }, "email verified");
 
   return user;
 };

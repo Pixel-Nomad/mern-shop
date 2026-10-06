@@ -28,3 +28,13 @@ export const signupSchema = z.object({
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;
+
+export const verifyEmailSchema = z.object({
+  token: z
+    .string()
+    .min(1, "Verification token is required")
+    .max(256, "Verification token is too long")
+    .regex(/^[a-f0-9]+$/i, "Invalid token format"),
+});
+
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;

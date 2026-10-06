@@ -11,7 +11,7 @@ import { notFound } from "./middleware/notFound.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { requestId } from "./middleware/requestId.js";
 import { requestLogger } from "./middleware/requestLogger.js";
-import { logger } from "./config/logger.js";
+import { authRouter } from "./features/auth/auth.routes.js";
 
 /**
  * Create an Express app. Connects to MongoDB first.
@@ -49,10 +49,11 @@ export const createApp = async (): Promise<express.Express> => {
 
   // ─── Routes ────────────────────────────────────────────────────
   app.use("/api/health", healthRouter);
-app.post("/api/debug-log", (req, res) => {
-  logger.info({ body: req.body }, "debug logging test");
-  res.json({ ok: true });
-});
+  app.use("/api/auth", authRouter);
+  // app.post("/api/debug-log", (req, res) => {
+  //   logger.info({ body: req.body }, "debug logging test");
+  //   res.json({ ok: true });
+  // });
   // ─── 404 + Error Handling (must be last) ───────────────────────
   app.use(notFound);
   app.use(errorHandler);

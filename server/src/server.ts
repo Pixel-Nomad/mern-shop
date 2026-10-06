@@ -1,21 +1,25 @@
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { disconnectDB } from "./config/db.js";
+import { logger } from "./config/logger.js";
+
+const log = logger.child({ name: "server" });
 
 const bootstrap = async (): Promise<void> => {
   const app = await createApp();
 
   const server = app.listen(env.PORT, () => {
-    console.warn(
-      `[server] ✅ listening on http://localhost:${env.PORT} in ${env.NODE_ENV} mode`,
+    log.info(
+      { port: env.PORT, env: env.NODE_ENV },
+      "✅ API listening",
     );
   });
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
-    console.warn(`[server] received ${signal}, shutting down...`);
+    log.warn({ signal }, "shutting down");
 
     const forceExit = setTimeout(() => {
-      console.error("[server] forced shutdown after 10s");
+      log.error("forced shutdown after 10s");
       process.exit(1);
     }, 10_000);
     forceExit.unref();
@@ -25,10 +29,10 @@ const bootstrap = async (): Promise<void> => {
         server.close((err) => (err ? reject(err) : resolve()));
       });
       await disconnectDB();
-      console.warn("[server] closed cleanly");
+      log.info("closed cleanly");
       process.exit(0);
     } catch (err) {
-      console.error("[server] error during shutdown:", err);
+      log.error({ err }, "error during shutdown");
       process.exit(1);
     }
   };
@@ -38,6 +42,6 @@ const bootstrap = async (): Promise<void> => {
 };
 
 bootstrap().catch((err: unknown) => {
-  console.error("[server] failed to start:", err);
+  log.error({ err }, "failed to start");
   process.exit(1);
 });

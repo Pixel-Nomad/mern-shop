@@ -3,13 +3,15 @@ import helmet from "helmet";
 import cors from "cors";
 import compression from "compression";
 import cookieParser from "cookie-parser";
-import morgan from "morgan";
 
 import { env } from "./config/env.js";
 import { connectDB } from "./config/db.js";
 import { healthRouter } from "./routes/health.route.js";
 import { notFound } from "./middleware/notFound.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { requestId } from "./middleware/requestId.js";
+import { requestLogger } from "./middleware/requestLogger.js";
+import { logger } from "./config/logger.js";
 
 /**
  * Create an Express app. Connects to MongoDB first.
@@ -23,6 +25,12 @@ export const createApp = async (): Promise<express.Express> => {
 
   // Trust first proxy (nginx, heroku router, etc.) so req.ip is correct.
   app.set("trust proxy", 1);
+
+  // ─── Request ID (must be first so everything else can use it) ──
+  app.use(requestId);
+
+  // ─── Logging ───────────────────────────────────────────────────
+  app.use(requestLogger);
 
   // ─── Security & Utility Middleware ─────────────────────────────
   app.use(helmet());
@@ -39,14 +47,12 @@ export const createApp = async (): Promise<express.Express> => {
   app.use(express.json({ limit: "10kb" }));
   app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 
-  // ─── HTTP Logging ──────────────────────────────────────────────
-  if (env.NODE_ENV !== "test") {
-    app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
-  }
-
   // ─── Routes ────────────────────────────────────────────────────
   app.use("/api/health", healthRouter);
-
+app.post("/api/debug-log", (req, res) => {
+  logger.info({ body: req.body }, "debug logging test");
+  res.json({ ok: true });
+});
   // ─── 404 + Error Handling (must be last) ───────────────────────
   app.use(notFound);
   app.use(errorHandler);

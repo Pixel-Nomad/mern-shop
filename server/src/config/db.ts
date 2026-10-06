@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import { env } from "./env.js";
+import { logger } from "./logger.js";
+const log = logger.child({ name: "db" });
 
 /**
  * State enum — mirrors mongoose.ConnectionStates.
@@ -47,9 +49,7 @@ export const connectDB = async (
             return;
           }
           const remaining = n - 1;
-          console.warn(
-            `[db] connection failed, retrying in ${delayMs}ms (${remaining} attempts left)`,
-          );
+          log.warn({ remaining, delayMs }, "connection failed, retrying")
           setTimeout(() => {
             attempt(remaining).then(resolve, reject);
           }, delayMs);
@@ -57,9 +57,9 @@ export const connectDB = async (
     });
   };
 
-  console.warn(`[db] connecting to MongoDB...`);
+  log.info("connecting to MongoDB")
   await attempt(retries);
-  console.warn(`[db] ✅ connected`);
+  log.info("✅ connected")
 };
 
 /**
@@ -67,22 +67,22 @@ export const connectDB = async (
  */
 export const disconnectDB = async (): Promise<void> => {
   await mongoose.connection.close();
-  console.warn(`[db] disconnected`);
+  log.info("disconnected");
 };
 
 // ─── Connection event listeners (for observability) ──────────────
 mongoose.connection.on("connected", () => {
-  console.warn("[db] event: connected");
+  log.info("event: connected");
 });
 
 mongoose.connection.on("disconnected", () => {
-  console.warn("[db] event: disconnected");
+  log.warn("event: disconnected");
 });
 
 mongoose.connection.on("reconnected", () => {
-  console.warn("[db] event: reconnected");
+  log.info("event: reconnected");
 });
 
 mongoose.connection.on("error", (err: unknown) => {
-  console.error("[db] event: error", err);
+  log.error({ err }, "event: error");
 });

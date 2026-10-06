@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import { AppError } from "../utils/AppError.js";
 import { env } from "../config/env.js";
+import { logger } from "../config/logger.js";
 
 /**
  * Central error handler — the ONE place that converts any thrown error
@@ -44,7 +45,7 @@ export const errorHandler = (
   }
 
   // 4. Unknown error → log fully, return generic 500
-  console.error("[unhandled error]", err);
+  logger.error({ err }, "unhandled error");
 
   res.status(500).json({
     status: "error",

@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import type { SignOptions } from "jsonwebtoken";
 import { env } from "../config/env.js";
+import { randomUUID } from "node:crypto";
 
 /**
  * Payload embedded in our JWTs.
@@ -11,6 +12,7 @@ export interface JwtPayload {
   email: string;
   role: "user" | "admin";
   type: "access" | "refresh";
+  jti?: string; 
 }
 
 export const signAccessToken = (payload: Omit<JwtPayload, "type">): string => {
@@ -21,9 +23,9 @@ export const signAccessToken = (payload: Omit<JwtPayload, "type">): string => {
   );
 };
 
-export const signRefreshToken = (payload: Omit<JwtPayload, "type">): string => {
+export const signRefreshToken = (payload: Omit<JwtPayload, "type" | "jti">): string => {
   return jwt.sign(
-    { ...payload, type: "refresh" },
+    { ...payload, type: "refresh", jti: randomUUID() },
     env.JWT_REFRESH_SECRET,
     { expiresIn: env.JWT_REFRESH_EXPIRES_IN } as SignOptions,
   );

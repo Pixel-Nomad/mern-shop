@@ -2,6 +2,7 @@ import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { disconnectDB } from "./config/db.js";
 import { logger } from "./config/logger.js";
+import { disconnectRedis } from "./config/redis.js";
 
 const log = logger.child({ name: "server" });
 
@@ -29,6 +30,7 @@ const bootstrap = async (): Promise<void> => {
         server.close((err) => (err ? reject(err) : resolve()));
       });
       await disconnectDB();
+      await disconnectRedis();
       log.info("closed cleanly");
       process.exit(0);
     } catch (err) {

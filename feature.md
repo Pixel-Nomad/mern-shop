@@ -294,9 +294,44 @@ Each entry lists what changed, why, and where to find the code.
 
 ---
 
+## Commit #12 — `feat(infra): integrate Redis for session storage and rate limiting`
+
+**Scope:** Infrastructure — Redis as a second data store.
+
+**What changed:**
+- **Redis client** (`server/src/config/redis.ts`):
+  - Singleton `ioredis` client with automatic reconnection.
+  - `pingRedis()` for health checks.
+  - `disconnectRedis()` for graceful shutdown.
+  - Event listeners for connect/ready/error/close/reconnecting.
+- **Refresh tokens migrated from MongoDB to Redis**:
+  - `refresh:<jti>` — one key per token, TTL 7 days.
+  - `refresh:user:<userId>` — SET of active jti's for a user.
+  - Auto-expiry via Redis TTL — no cron job needed.
+  - Deleted `refreshToken.model.ts` (Mongo model no longer needed).
+- **`jti` claim added to JWTs** — refresh tokens now carry a random UUID. Solves JWT determinism (two tokens signed in the same second were previously identical).
+- **Rate limiting** (`server/src/middleware/rateLimiter.ts`):
+  - Global limiter: 100 requests / 15 min per IP.
+  - Auth limiter: 10 requests / 15 min (with 15 min block).
+  - Strict limiter: 5 requests / hour (for password reset).
+  - Standard headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`.
+  - In test env, uses in-memory backend so tests don't require Redis.
+- **Graceful shutdown** now also closes Redis.
+- Tests: `redis.test.ts` (connection, TTL) + `rateLimit.test.ts` (429 on limit hit, headers on success).
+
+**Why:**
+- **Redis TTL** replaces Mongo's TTL index — same result, faster lookups, decoupled from primary DB.
+- **Rate limiting is only feasible with Redis** — memory-based won't work across multiple server instances; DB-based is too slow.
+- **`jti`** guarantees token uniqueness and unlocks family-based revocation (coming in a future commit).
+
+**Dependencies added:** `ioredis`, `rate-limiter-flexible`.
+
+**Environment:** `REDIS_URL` (was already in `.env.example`).
+
+---
+
 ## Coming Next
 
-- **Commit #12:** Redis integration (session store, rate limiting, caching).
 - **Commit #13:** Rate limiting middleware.
 - **Commit #14:** TOTP 2FA (Google Authenticator).
 - **Commit #15:** Google OAuth (via Passport).

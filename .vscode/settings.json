@@ -1,0 +1,8 @@
+{
+    "discord.detailsEditing": "{dir_name}\\{file_name}",
+    "discord.swapBigAndSmallImage": false,
+    "discord.removeTimestamp": true,
+    "discord.lowerDetailsEditing": "MERN-Shop ({current_line}/{total_lines}) ({file_size})",
+    "discord.detailsIdling": "MERN-Shop",
+    "discord.lowerDetailsIdling": "MERN-Shop",
+}

@@ -4,12 +4,17 @@ import type { Express } from "express";
 import { createApp } from "../../../app.js";
 import { disconnectDB } from "../../../config/db.js";
 import { User } from "../../user/user.model.js";
-import { RefreshToken } from "../refreshToken.model.js";
+import { redis } from "../../../config/redis.js";
 import { generateToken, hashToken } from "../../../utils/crypto.js";
+import { disconnectRedis } from "../../../config/redis.js";
 
 vi.mock("../../../config/email.js", () => ({
   sendEmail: vi.fn().mockResolvedValue(true),
 }));
+
+const getRefreshJtisForUser = async (userId: string): Promise<string[]> => {
+  return redis.smembers(`refresh:user:${userId}`);
+};
 
 let app: Express;
 
@@ -19,13 +24,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await User.deleteMany({});
-  await RefreshToken.deleteMany({});
+  await redis.flushdb()
   await disconnectDB();
+  await disconnectRedis();
 });
 
 beforeEach(async () => {
   await User.deleteMany({});
-  await RefreshToken.deleteMany({});
+  await redis.flushdb()
 });
 
 const createUser = async () => {
@@ -161,23 +167,23 @@ describe("POST /api/auth/reset-password", () => {
   });
 
   it("revokes all refresh tokens on successful reset", async () => {
-    await createUser();
+    const user = await createUser();
 
-    // Login to get a refresh token
+    // Login to create a refresh token
     await request(app)
       .post("/api/auth/login")
       .send({ email: "reset@test.com", password: "OldPassword123" });
 
-    const tokensBefore = await RefreshToken.countDocuments({});
-    expect(tokensBefore).toBeGreaterThan(0);
+    const jtisBefore = await getRefreshJtisForUser(user._id.toString());
+    expect(jtisBefore.length).toBeGreaterThan(0);
 
     const rawToken = await attachResetToken("reset@test.com");
     await request(app)
       .post("/api/auth/reset-password")
       .send({ token: rawToken, password: "NewPassword456" });
 
-    const tokensAfter = await RefreshToken.countDocuments({});
-    expect(tokensAfter).toBe(0);
+    const jtisAfter = await getRefreshJtisForUser(user._id.toString());
+    expect(jtisAfter.length).toBe(0);
   });
 
   it("resets login attempts and lockout", async () => {

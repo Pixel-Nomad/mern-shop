@@ -12,6 +12,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { requestId } from "./middleware/requestId.js";
 import { requestLogger } from "./middleware/requestLogger.js";
 import { authRouter } from "./features/auth/auth.routes.js";
+import { globalLimiter, authLimiter, strictLimiter } from "./middleware/rateLimiter.js";
 
 /**
  * Create an Express app. Connects to MongoDB first.
@@ -46,6 +47,14 @@ export const createApp = async (): Promise<express.Express> => {
   // ─── Body Parsers ──────────────────────────────────────────────
   app.use(express.json({ limit: "10kb" }));
   app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+
+  // ─── Rate Limiting ─────────────────────────────────────────────
+  app.use("/api", globalLimiter);
+
+  app.use("/api/auth/signup", authLimiter);
+  app.use("/api/auth/login", authLimiter);
+  app.use("/api/auth/forgot-password", strictLimiter);
+  app.use("/api/auth/reset-password", strictLimiter);
 
   // ─── Routes ────────────────────────────────────────────────────
   app.use("/api/health", healthRouter);

@@ -8,10 +8,10 @@ import type { SignupInput } from "./auth.validation.js";
 import { sendEmail } from "../../config/email.js";
 import { verifyEmailTemplate } from "./emailTemplates/index.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../utils/jwt.js";
-import { RefreshToken } from "./refreshToken.model.js";
-import ms from "ms";
 import bcrypt from "bcrypt";
 import { forgotPasswordTemplate } from "./emailTemplates/index.js";
+import { storeRefreshToken, getRefreshToken, revokeRefreshToken, revokeAllUserRefreshTokens } from "./refreshToken.service.js";
+import type { JwtPayload } from "../../utils/jwt.js";
 
 interface AuthResult {
   user: IUserDocument;
@@ -168,15 +168,11 @@ export const loginUser = async (
     role: user.role,
   });
 
-  // Store refresh token hash in DB
-  const ttlMs = ms(env.JWT_REFRESH_EXPIRES_IN);
-  await RefreshToken.create({
-    userId: user._id,
-    tokenHash: hashToken(refreshToken),
-    expiresAt: new Date(Date.now() + ttlMs),
-  });
+  const decoded = verifyRefreshToken(refreshToken);
+  const jti = decoded.jti;
+  if (!jti) throw AppError.internal("Missing jti on refresh token");
 
-  log.info({ userId: user._id.toString() }, "user logged in");
+  await storeRefreshToken(jti, user._id.toString());
 
   return { user, accessToken, refreshToken };
 };
@@ -185,31 +181,32 @@ export const loginUser = async (
  * Rotate refresh tokens — verify, revoke old, issue new pair.
  */
 export const rotateRefreshToken = async (rawRefreshToken: string): Promise<AuthResult> => {
-  let payload;
+  let payload: JwtPayload;
   try {
     payload = verifyRefreshToken(rawRefreshToken);
   } catch {
     throw AppError.unauthorized("Invalid refresh token");
   }
 
-  const tokenHash = hashToken(rawRefreshToken);
-  const stored = await RefreshToken.findOne({ tokenHash });
+  const jti = payload.jti;
+  if (!jti) throw AppError.unauthorized("Invalid refresh token");
 
+  const stored = await getRefreshToken(jti);
   if (!stored) {
-    // Token is valid but not in DB — could be reuse after rotation.
-    // Revoke ALL of this user's refresh tokens (defense against token theft).
-    await RefreshToken.deleteMany({ userId: payload.sub });
+    // Token valid but not in Redis → either expired, logged out, or reused.
+    // Revoke ALL of this user's tokens defensively.
+    await revokeAllUserRefreshTokens(payload.sub);
     throw AppError.unauthorized("Refresh token not recognized");
   }
 
   const user = await User.findById(payload.sub);
   if (!user) {
-    await RefreshToken.deleteOne({ _id: stored._id });
+    await revokeRefreshToken(jti, payload.sub);
     throw AppError.unauthorized("User no longer exists");
   }
 
-  // Rotate: delete old, issue new
-  await RefreshToken.deleteOne({ _id: stored._id });
+  // Rotate: revoke old, issue new
+  await revokeRefreshToken(jti, payload.sub);
 
   const newAccessToken = signAccessToken({
     sub: user._id.toString(),
@@ -221,13 +218,11 @@ export const rotateRefreshToken = async (rawRefreshToken: string): Promise<AuthR
     email: user.email,
     role: user.role,
   });
+  const newDecoded = verifyRefreshToken(newRefreshToken);
+  const newJti = newDecoded.jti;
+  if (!newJti) throw AppError.internal("Missing jti on refresh token");
 
-  const ttlMs = ms(env.JWT_REFRESH_EXPIRES_IN);
-  await RefreshToken.create({
-    userId: user._id,
-    tokenHash: hashToken(newRefreshToken),
-    expiresAt: new Date(Date.now() + ttlMs),
-  });
+  await storeRefreshToken(newJti, user._id.toString());
 
   return { user, accessToken: newAccessToken, refreshToken: newRefreshToken };
 };
@@ -236,8 +231,14 @@ export const rotateRefreshToken = async (rawRefreshToken: string): Promise<AuthR
  * Logout — delete the refresh token from DB.
  */
 export const logoutUser = async (rawRefreshToken: string): Promise<void> => {
-  const tokenHash = hashToken(rawRefreshToken);
-  await RefreshToken.deleteOne({ tokenHash });
+  try {
+    const payload = verifyRefreshToken(rawRefreshToken);
+    if (payload.jti) {
+      await revokeRefreshToken(payload.jti, payload.sub);
+    }
+  } catch {
+    // Token was invalid/malformed — nothing to revoke.
+  }
   log.info("user logged out");
 };
 
@@ -317,7 +318,7 @@ export const resetPasswordUser = async (
   await user.save();
 
   // Revoke all refresh tokens for this user — force re-login everywhere.
-  await RefreshToken.deleteMany({ userId: user._id });
+  await revokeAllUserRefreshTokens(user._id.toString());
 
   log.info({ userId: user._id.toString() }, "password reset successful");
 

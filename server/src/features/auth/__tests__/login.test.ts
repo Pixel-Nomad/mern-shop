@@ -4,11 +4,15 @@ import type { Express } from "express";
 import { createApp } from "../../../app.js";
 import { disconnectDB } from "../../../config/db.js";
 import { User } from "../../user/user.model.js";
-import { RefreshToken } from "../refreshToken.model.js";
+import { redis } from "../../../config/redis.js";
 
 vi.mock("../../../config/email.js", () => ({
   sendEmail: vi.fn().mockResolvedValue(true),
 }));
+
+const getRefreshJtisForUser = async (userId: string): Promise<string[]> => {
+  return redis.smembers(`refresh:user:${userId}`);
+};
 
 let app: Express;
 
@@ -18,13 +22,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await User.deleteMany({});
-  await RefreshToken.deleteMany({});
+  await redis.flushdb();
   await disconnectDB();
 });
 
 beforeEach(async () => {
   await User.deleteMany({});
-  await RefreshToken.deleteMany({});
+  await redis.flushdb();
 });
 
 const createVerifiedUser = async () => {
@@ -60,14 +64,14 @@ describe("POST /api/auth/login", () => {
     expect(refreshCookie).toMatch(/SameSite=Strict/i);
   });
 
-  it("creates a RefreshToken document", async () => {
-    await createVerifiedUser();
+  it("stores a refresh token in Redis", async () => {
+    const user = await createVerifiedUser();
     await request(app)
       .post("/api/auth/login")
       .send({ email: "login@test.com", password: "Password123" });
 
-    const tokens = await RefreshToken.find({});
-    expect(tokens.length).toBe(1);
+    const jtis = await getRefreshJtisForUser(user._id.toString());
+    expect(jtis.length).toBe(1);
   });
 
   it("rejects invalid credentials with generic message", async () => {
@@ -145,11 +149,11 @@ describe("POST /api/auth/login", () => {
 
 describe("POST /api/auth/refresh", () => {
   it("rotates the refresh token", async () => {
-    await createVerifiedUser();
+    const user = await createVerifiedUser();
 
     const loginRes = await request(app)
-        .post("/api/auth/login")
-        .send({ email: "login@test.com", password: "Password123" });
+      .post("/api/auth/login")
+      .send({ email: "login@test.com", password: "Password123" });
 
     const cookies = loginRes.headers["set-cookie"] as unknown as string[];
     const refreshCookie = cookies.find((c) => c.startsWith("refreshToken="));
@@ -158,26 +162,22 @@ describe("POST /api/auth/refresh", () => {
     const cookieValue = refreshCookie!.split(";")[0];
     if (!cookieValue) throw new Error("Expected refreshToken cookie");
 
-    // Before refresh: exactly 1 token in DB
-    expect(await RefreshToken.countDocuments({})).toBe(1);
+    const jtisBefore = await getRefreshJtisForUser(user._id.toString());
+    expect(jtisBefore.length).toBe(1);
 
     const refreshRes = await request(app)
-        .post("/api/auth/refresh")
-        .set("Cookie", cookieValue);
+      .post("/api/auth/refresh")
+      .set("Cookie", cookieValue);
 
     expect(refreshRes.status).toBe(200);
     expect(refreshRes.body.accessToken).toBeDefined();
 
-    // The critical assertion: rotation deletes old + creates new = still exactly 1.
-    // If rotation were broken and just added tokens, this would be 2.
-    expect(await RefreshToken.countDocuments({})).toBe(1);
+    // Still exactly one active token after rotation (old was revoked, new was stored).
+    const jtisAfter = await getRefreshJtisForUser(user._id.toString());
+    expect(jtisAfter.length).toBe(1);
 
-    // A new Set-Cookie header was issued
-    const newCookies = refreshRes.headers["set-cookie"] as unknown as string[];
-    const newRefreshCookie = newCookies.find((c) =>
-        c.startsWith("refreshToken="),
-    );
-    expect(newRefreshCookie).toBeDefined();
+    // And it's a DIFFERENT jti than before — proving rotation happened.
+    expect(jtisAfter[0]).not.toBe(jtisBefore[0]);
   });
 });
 
@@ -213,21 +213,18 @@ describe("GET /api/auth/me", () => {
 });
 
 describe("POST /api/auth/logout", () => {
-  it("clears refresh cookie and deletes token from DB", async () => {
-    await createVerifiedUser();
+  it("clears refresh cookie and deletes token from Redis", async () => {
+    const user = await createVerifiedUser();
 
     const loginRes = await request(app)
       .post("/api/auth/login")
       .send({ email: "login@test.com", password: "Password123" });
 
     const cookies = loginRes.headers["set-cookie"] as unknown as string[];
-
     const cookieValue = cookies
-        .find((c) => c.startsWith("refreshToken="))!
-        .split(";")[0];
-    if (!cookieValue) {
-        throw new Error("Expected refreshToken cookie");
-    }
+      .find((c) => c.startsWith("refreshToken="))!
+      .split(";")[0];
+    if (!cookieValue) throw new Error("Expected refreshToken cookie");
 
     const logoutRes = await request(app)
       .post("/api/auth/logout")
@@ -236,7 +233,7 @@ describe("POST /api/auth/logout", () => {
     expect(logoutRes.status).toBe(200);
     expect(logoutRes.headers["set-cookie"]?.[0]).toMatch(/refreshToken=;/);
 
-    const tokens = await RefreshToken.find({});
-    expect(tokens.length).toBe(0);
+    const jtis = await getRefreshJtisForUser(user._id.toString());
+    expect(jtis.length).toBe(0);
   });
 });
